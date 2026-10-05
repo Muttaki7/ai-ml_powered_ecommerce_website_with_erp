@@ -18,7 +18,7 @@ class ProductCreate(BaseModel):
     barcode: Optional[str] = None
     description: Optional[str] = None
     specifications: Optional[dict] = None
-    category_id: str
+    category_id: Optional[str] = None
     brand: Optional[str] = None
     purchase_price: float
     selling_price: float
@@ -65,7 +65,7 @@ class ProductOut(BaseModel):
     barcode: Optional[str] = None
     description: Optional[str] = None
     specifications: Optional[dict] = None
-    category_id: str
+    category_id: Optional[str] = None
     brand: Optional[str] = None
     purchase_price: float
     selling_price: float

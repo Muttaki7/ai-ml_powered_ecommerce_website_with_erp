@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminApi, formatBDT, getApiError, downloadBlob } from "@/lib/api";
 import { useAdminAuth } from "@/lib/useAdminAuth";
@@ -33,9 +33,12 @@ export default function AdminOrdersPage() {
   const { user, loading } = useAdminAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [status, setStatus] = useState("");
+  const statusRef = useRef("");
 
   useEffect(() => {
-    if (!loading) load(status);
+    if (!loading) load(statusRef.current);
+    const timer = setInterval(() => load(statusRef.current), 5 * 60 * 1000);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
@@ -64,7 +67,7 @@ export default function AdminOrdersPage() {
   async function downloadInvoice(id: string, orderNumber: string) {
     try {
       const r = await adminApi.orderInvoice(id);
-      downloadBlob(r, `INV-${orderNumber}.docx`);
+      downloadBlob(r, `INV-${orderNumber}.pdf`);
     } catch (e: any) {
       toast.error(getApiError(e, "Invoice download failed"));
     }
@@ -87,6 +90,7 @@ export default function AdminOrdersPage() {
             value={status}
             onChange={(e) => {
               setStatus(e.target.value);
+              statusRef.current = e.target.value;
               load(e.target.value);
             }}
             className="input !py-2 !pl-9 text-sm"
@@ -150,7 +154,7 @@ export default function AdminOrdersPage() {
                     <button
                       onClick={() => downloadInvoice(o.id, o.order_number || o.id)}
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border dark:border-slate-700 text-xs whitespace-nowrap hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-                      title="Download invoice (.docx)"
+                      title="Download invoice (.pdf)"
                     >
                       <FileText size={13} /> Invoice
                     </button>

@@ -5,7 +5,7 @@ from bson import ObjectId
 
 from app.core.security import decode_token
 from app.core.database import get_db
-from app.core.constants import AdminRole, ROLE_PERMISSIONS
+from app.core.constants import resolve_admin_permissions
 
 security = HTTPBearer(auto_error=False)
 
@@ -41,9 +41,11 @@ async def get_current_admin(
     admin = await db.admins.find_one({"_id": ObjectId(payload["sub"])})
     if not admin or admin.get("status") != "active":
         raise HTTPException(status_code=401, detail="Admin inactive")
-    perms = payload.get("permissions") or admin.get("permissions") or []
-    if admin.get("is_main_admin"):
-        perms = ROLE_PERMISSIONS[AdminRole.MAIN_ADMIN]
+    perms = resolve_admin_permissions(
+        admin.get("role"),
+        admin.get("is_main_admin", False),
+        admin.get("permissions"),
+    )
     return {
         "id": str(admin["_id"]),
         "email": admin["email"],

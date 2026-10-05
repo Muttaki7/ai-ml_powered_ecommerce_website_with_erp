@@ -127,11 +127,12 @@ export default function CartPage() {
   }
 
   async function downloadInvoice() {
-    if (!placed?.id) return;
+    const orderId = placed?.order_id || placed?.id;
+    if (!orderId) return;
     setInvoiceLoading(true);
     try {
-      const r = await orderApi.myInvoice(placed.id);
-      downloadBlob(r, `INV-${placed.order_number || placed.id}.docx`);
+      const r = await orderApi.myInvoice(orderId);
+      downloadBlob(r, `INV-${placed.order_number || orderId}.pdf`);
     } catch (err: any) {
       toast.error(getApiError(err, "Invoice download failed"));
     } finally {
@@ -161,7 +162,7 @@ export default function CartPage() {
               disabled={invoiceLoading}
               className="btn-primary mt-6 mx-auto inline-flex"
             >
-              <FileDown size={16} /> {invoiceLoading ? "Preparing…" : "Download Invoice (.docx)"}
+              <FileDown size={16} /> {invoiceLoading ? "Preparing…" : "Download Invoice (.pdf)"}
             </button>
             <div className="mt-4 flex items-center justify-center gap-4 text-sm">
               <Link href="/orders" className="text-sky-600 dark:text-sky-400 hover:underline">

@@ -7,7 +7,7 @@ import { StorefrontHeader } from "@/components/StorefrontHeader";
 import { Footer } from "@/components/Footer";
 import { ProductCard } from "@/components/ProductCard";
 import {
-  ArrowRight, Sparkles, Truck, ShieldCheck, BadgePercent, ShoppingBag, Tags, Zap,
+  ArrowRight, Sparkles, Truck, ShieldCheck, BadgePercent, ShoppingBag, Zap,
 } from "lucide-react";
 
 const CATEGORY_GRADIENTS = [
@@ -49,7 +49,6 @@ function Poster({ title, subtitle, accent }: { title: string; subtitle: string; 
 export default function HomePage() {
   const [featured, setFeatured] = useState<any[]>([]);
   const [newest, setNewest] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<any>(null);
   const [posters, setPosters] = useState<any[]>([]);
@@ -69,7 +68,6 @@ export default function HomePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
     productApi.list({ limit: 8 }).then((r) => setNewest(Array.isArray(r.data) ? r.data : [])).catch(() => {});
-    productApi.categories().then((r) => setCategories(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   }, []);
 
   return (
@@ -150,26 +148,6 @@ export default function HomePage() {
       </section>
 
       <section className="max-w-7xl mx-auto px-4 py-10 w-full">
-        <SectionHead icon={Tags} title="Shop by category" href="/products" />
-        <div className="mt-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          {categories.map((c, i) => (
-            <Link
-              key={c.id}
-              href={`/products?category_id=${c.id}`}
-              className={`rounded-2xl p-5 text-white font-bold shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all aspect-[4/3] flex flex-col justify-end bg-gradient-to-br ${
-                CATEGORY_GRADIENTS[i % CATEGORY_GRADIENTS.length]
-              }`}
-            >
-              <span className="text-lg leading-tight drop-shadow">{c.name}</span>
-              <span className="mt-1 text-xs opacity-90 flex items-center gap-1">
-                Explore <ArrowRight size={12} />
-              </span>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="max-w-7xl mx-auto px-4 pb-10 w-full">
         <SectionHead icon={Sparkles} title="Featured products" href="/products" />
         {loading ? (
           <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-4">

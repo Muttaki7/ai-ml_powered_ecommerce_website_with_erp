@@ -35,8 +35,8 @@ export function Footer() {
           <h4 className="font-semibold text-slate-900 dark:text-white">Get in touch</h4>
           <ul className="mt-3 space-y-2 text-sm text-slate-500 dark:text-slate-400">
             <li className="flex items-center gap-2"><MapPin size={15} /> Dhaka, Bangladesh</li>
-            <li className="flex items-center gap-2"><Mail size={15} /> support@bdshop.local</li>
-            <li className="flex items-center gap-2"><Phone size={15} /> +880 1700-000000</li>
+            <li className="flex items-center gap-2"><Mail size={15} /> tsiitsolutions1@gmail.com</li>
+            <li className="flex items-center gap-2"><Phone size={15} /> 01747875143</li>
           </ul>
         </div>
         <div>
@@ -55,7 +55,12 @@ export function Footer() {
         </div>
       </div>
       <div className="border-t border-slate-200 dark:border-slate-800 py-5 text-center text-xs text-slate-400 dark:text-slate-500">
-        © {new Date().getFullYear()} BD Commerce + ERP · Built for Bangladesh
+        A benchmark product of TSI IT Solutions<br className="sm:hidden" />
+        <span className="flex items-center justify-center gap-4 mt-1">
+          <span className="inline-flex items-center gap-1">Phone: 01747875143</span>
+          <span className="hidden sm:inline">·</span>
+          <span className="inline-flex items-center gap-1">Email: tsiitsolutions1@gmail.com</span>
+        </span>
       </div>
     </footer>
   );
