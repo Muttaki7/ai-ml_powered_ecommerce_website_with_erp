@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { productApi } from "@/lib/api";
 import { StorefrontHeader } from "@/components/StorefrontHeader";
@@ -12,11 +11,12 @@ function ProductsInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [loading, setLoading] = useState(true);
 
-  const categoryId = searchParams.get("category_id") || "";
+  const brandsParam = searchParams.get("brands") || "";
+  const selectedBrands = brandsParam ? brandsParam.split(",").filter(Boolean) : [];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -24,7 +24,8 @@ function ProductsInner() {
       const params: any = { limit: 48 };
       const qParam = searchParams.get("q");
       if (qParam) params.q = qParam;
-      if (categoryId) params.category_id = categoryId;
+      const brandParam = searchParams.get("brands");
+      if (brandParam) params.brand = brandParam;
       const r = await productApi.list(params);
       setProducts(Array.isArray(r.data) ? r.data : []);
     } catch {
@@ -32,11 +33,16 @@ function ProductsInner() {
     } finally {
       setLoading(false);
     }
-  }, [searchParams, categoryId]);
+  }, [searchParams]);
 
   useEffect(() => {
-    productApi.categories().then((r) => setCategories(r.data || [])).catch(() => {});
+    productApi.brands().then((r) => setBrands(Array.isArray(r.data) ? r.data : [])).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQ(searchParams.get("q") || "");
+  }, [searchParams]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -47,7 +53,17 @@ function ProductsInner() {
     e.preventDefault();
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
-    if (categoryId) params.set("category_id", categoryId);
+    if (brandsParam) params.set("brands", brandsParam);
+    router.push(`/products?${params.toString()}`);
+  }
+
+  function toggleBrand(b: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    const next = selectedBrands.includes(b)
+      ? selectedBrands.filter((x) => x !== b)
+      : [...selectedBrands, b];
+    if (next.length) params.set("brands", next.join(","));
+    else params.delete("brands");
     router.push(`/products?${params.toString()}`);
   }
 
@@ -74,31 +90,45 @@ function ProductsInner() {
           </button>
         </form>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href="/products"
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
-              !categoryId
-                ? "bg-sky-600 text-white border-sky-600"
-                : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-sky-400"
-            }`}
-          >
-            All
-          </Link>
-          {categories.map((c) => (
-            <Link
-              key={c.id}
-              href={`/products?category_id=${c.id}`}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
-                categoryId === c.id
-                  ? "bg-sky-600 text-white border-sky-600"
-                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-sky-400"
-              }`}
-            >
-              {c.name}
-            </Link>
-          ))}
-        </div>
+        {brands.length > 0 && (
+          <div className="mt-5">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
+              Filter by brand {selectedBrands.length > 0 && `(${selectedBrands.length} selected)`}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.delete("brands");
+                  router.push(`/products?${params.toString()}`);
+                }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
+                  selectedBrands.length === 0
+                    ? "bg-sky-600 text-white border-sky-600"
+                    : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-sky-400"
+                }`}
+              >
+                All Brands
+              </button>
+              {brands.map((b) => {
+                const active = selectedBrands.includes(b);
+                return (
+                  <button
+                    key={b}
+                    onClick={() => toggleBrand(b)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
+                      active
+                        ? "bg-sky-600 text-white border-sky-600"
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-sky-400"
+                    }`}
+                  >
+                    {b}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">

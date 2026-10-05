@@ -35,9 +35,15 @@ export default function ProductDetailPage() {
 
   useEffect(() => {
     if (!params.id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
     productApi
       .get(params.id)
-      .then((r) => setProduct(r.data))
+      .then((r) => {
+        setProduct(r.data);
+        setActiveImage(0);
+        setQty(1);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [params.id]);

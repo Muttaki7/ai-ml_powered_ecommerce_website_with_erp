@@ -11,7 +11,7 @@ from app.core.security import (
     verify_totp, generate_backup_codes, hash_backup_code, verify_backup_code,
 )
 from app.core.config import settings
-from app.core.constants import ROLE_PERMISSIONS, AdminRole, UserStatus
+from app.core.constants import UserStatus, resolve_admin_permissions
 from app.services.audit_service import log_action
 
 
@@ -195,9 +195,11 @@ async def confirm_admin_2fa(admin_id: str, code: str) -> dict:
 
 
 async def _issue_admin_tokens(admin: dict, ip: str = None) -> dict:
-    perms = admin.get("permissions") or ROLE_PERMISSIONS.get(admin.get("role"), [])
-    if admin.get("is_main_admin"):
-        perms = ROLE_PERMISSIONS[AdminRole.MAIN_ADMIN]
+    perms = resolve_admin_permissions(
+        admin.get("role"),
+        admin.get("is_main_admin", False),
+        admin.get("permissions"),
+    )
 
     access = create_access_token(
         str(admin["_id"]),
@@ -284,9 +286,11 @@ def _serialize_customer(user: dict) -> dict:
 
 def _serialize_admin(admin: dict) -> dict:
     two_factor = admin.get("two_factor") or {}
-    perms = admin.get("permissions") or ROLE_PERMISSIONS.get(admin.get("role"), [])
-    if admin.get("is_main_admin"):
-        perms = ROLE_PERMISSIONS[AdminRole.MAIN_ADMIN]
+    perms = resolve_admin_permissions(
+        admin.get("role"),
+        admin.get("is_main_admin", False),
+        admin.get("permissions"),
+    )
     return {
         "id": str(admin["_id"]),
         "full_name": admin.get("full_name") or admin.get("name"),

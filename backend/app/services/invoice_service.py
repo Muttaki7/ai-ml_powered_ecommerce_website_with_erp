@@ -1,7 +1,7 @@
 """
-Order invoice generation as a Word (.docx) document.
+Order invoice generation as a PDF document.
 
-Every order gets a printable invoice saved under uploads/invoices/ in .docx
+Every order gets a printable invoice saved under uploads/invoices/ in .pdf
 format. The document includes the order items, totals, shipping address,
 payment details and the full status history ("invoice messages"). The file is
 regenerated when the order status or payment status changes so the stored
@@ -12,10 +12,11 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from bson import ObjectId
-from docx import Document
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 from app.core.database import get_db
 
@@ -25,9 +26,11 @@ COMPANY_NAME = "Bangladesh E-Commerce + ERP"
 COMPANY_ADDRESS = "Head Office, Dhaka 1207, Bangladesh"
 SUPPORT = "support@bdshop.local  .  +880 1700-000000"
 
-PRIMARY = RGBColor(0x0F, 0x17, 0x2A)
-ACCENT = RGBColor(0x71, 0x63, 0xFF)
-MUTED = RGBColor(0x6B, 0x72, 0x80)
+PRIMARY = colors.HexColor(0x0F172A)
+ACCENT = colors.HexColor(0x7163FF)
+MUTED = colors.HexColor(0x6B7280)
+LIGHT = colors.HexColor(0xF1F5F9)
+GRID_COLOR = colors.HexColor(0xE2E8F0)
 
 
 def _fmt_money(value) -> str:
@@ -43,27 +46,28 @@ def _fmt_dt(value) -> str:
     return value.strftime("%d %b %Y, %I:%M %p") if hasattr(value, "strftime") else str(value)
 
 
-def _set_cell(cell, text: str, bold: bool = False, align=WD_ALIGN_PARAGRAPH.LEFT, color=None, size: int = 10):
-    cell.text = ""
-    p = cell.paragraphs[0]
-    p.alignment = align
-    run = p.add_run(str(text))
-    run.bold = bold
-    run.font.size = Pt(size)
-    if color:
-        run.font.color.rgb = color
-    return cell
-
-
-def _status_styling(doc: Document) -> None:
-    """Light global styling so the invoice looks clean in Word."""
-    style = doc.styles["Normal"]
-    style.font.name = "Calibri"
-    style.font.size = Pt(10)
+def _table_style(header_bg: bool = False) -> TableStyle:
+    cmds = [
+        ("GRID", (0, 0), (-1, -1), 0.75, GRID_COLOR),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+    if header_bg:
+        cmds += [
+            ("BACKGROUND", (0, 0), (-1, 0), PRIMARY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
+        ]
+    return TableStyle(cmds)
 
 
 async def generate_order_invoice(order_id: str) -> Path:
-    """Build (or rebuild) the .docx invoice for an order and store it on disk."""
+    """Build (or rebuild) the .pdf invoice for an order and store it on disk."""
     db = get_db()
     try:
         order = await db.orders.find_one({"_id": ObjectId(order_id)})
@@ -77,170 +81,170 @@ async def generate_order_invoice(order_id: str) -> Path:
     if order.get("customer_id"):
         customer = await db.customers.find_one({"_id": order["customer_id"]})
 
-    doc = Document()
-    _status_styling(doc)
-    for section in doc.sections:
-        section.top_margin = Inches(0.6)
-        section.bottom_margin = Inches(0.6)
-        section.left_margin = Inches(0.7)
-        section.right_margin = Inches(0.7)
+    INVOICE_DIR.mkdir(parents=True, exist_ok=True)
+    path = INVOICE_DIR / f"INV-{order_number}.pdf"
+
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=styles["Title"], textColor=PRIMARY, fontSize=24, fontName="Helvetica-Bold", spaceAfter=2)
+    h2 = ParagraphStyle("h2", parent=styles["Normal"], textColor=ACCENT, fontSize=11, spaceAfter=2)
+    muted = ParagraphStyle("muted", parent=styles["Normal"], textColor=MUTED, fontSize=9, spaceAfter=2)
+    title = ParagraphStyle("title", parent=styles["Title"], textColor=ACCENT, fontSize=20, spaceAfter=10)
+    section = ParagraphStyle("section", parent=styles["Heading2"], textColor=PRIMARY, fontSize=12, spaceBefore=8, spaceAfter=4)
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=9)
+    note = ParagraphStyle("note", parent=styles["BodyText"], textColor=MUTED, fontSize=9)
+
+    def label(text: str) -> Paragraph:
+        return Paragraph(f"<font color='#0F172A'><b>{text}</b></font>", body)
+
+    def value(text) -> Paragraph:
+        return Paragraph(str(text), body)
+
+    doc = SimpleDocTemplate(
+        str(path),
+        pagesize=A4,
+        topMargin=0.6 * inch,
+        bottomMargin=0.6 * inch,
+        leftMargin=0.7 * inch,
+        rightMargin=0.7 * inch,
+        title=f"INV-{order_number}",
+        author=BRAND,
+    )
+    story = []
 
     # ----- Header -----
-    head = doc.add_paragraph()
-    head.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = head.add_run(BRAND)
-    run.bold = True
-    run.font.size = Pt(24)
-    run.font.color.rgb = PRIMARY
-
-    sub = doc.add_paragraph()
-    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = sub.add_run(COMPANY_NAME)
-    run.font.size = Pt(11)
-    run.font.color.rgb = ACCENT
-
-    addr = doc.add_paragraph()
-    addr.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = addr.add_run(f"{COMPANY_ADDRESS}\n{SUPPORT}")
-    run.font.size = Pt(9)
-    run.font.color.rgb = MUTED
-
-    title = doc.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run("INVOICE")
-    run.bold = True
-    run.font.size = Pt(20)
-    run.font.color.rgb = ACCENT
+    story.append(Paragraph(BRAND, h1))
+    story.append(Paragraph(COMPANY_NAME, h2))
+    story.append(Paragraph(f"{COMPANY_ADDRESS}<br/>{SUPPORT}", muted))
+    story.append(Paragraph("INVOICE", title))
 
     # ----- Meta rows -----
-    meta = doc.add_table(rows=0, cols=2)
-    meta.alignment = WD_TABLE_ALIGNMENT.CENTER
-    meta.style = "Table Grid"
     status = order.get("status") or "unknown"
     payment_status = order.get("payment_status") or "pending"
-    meta_rows = [
-        ("Invoice No.", f"INV-{order_number}"),
-        ("Order No.", order_number),
-        ("Order Date", _fmt_dt(order.get("created_at"))),
-        ("Order Status", status),
-        ("Payment Method", order.get("payment_method") or "—"),
-        ("Payment Status", payment_status),
-        ("Payment Transaction", order.get("payment_transaction_id") or "—"),
-    ]
-    for label, value in meta_rows:
-        row = meta.add_row().cells
-        _set_cell(row[0], label, bold=True, color=PRIMARY)
-        _set_cell(row[1], value)
-    doc.add_paragraph()
+    meta = Table(
+        [[label(k), value(v)] for k, v in [
+            ("Invoice No.", f"INV-{order_number}"),
+            ("Order No.", order_number),
+            ("Order Date", _fmt_dt(order.get("created_at"))),
+            ("Order Status", status),
+            ("Payment Method", order.get("payment_method") or "—"),
+            ("Payment Status", payment_status),
+            ("Payment Transaction", order.get("payment_transaction_id") or "—"),
+        ]],
+        colWidths=[2.2 * inch, 4.4 * inch],
+    )
+    meta.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.75, GRID_COLOR),
+        ("BACKGROUND", (0, 0), (0, -1), LIGHT),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(meta)
+    story.append(Spacer(1, 10))
 
     # ----- Bill To -----
-    bill = doc.add_paragraph()
-    run = bill.add_run("Bill To")
-    run.bold = True
-    run.font.size = Pt(12)
-    run.font.color.rgb = PRIMARY
-
-    bt = doc.add_table(rows=0, cols=2)
-    bt.style = "Table Grid"
+    story.append(Paragraph("Bill To", section))
     ship = order.get("shipping_address") or {}
-    bt_rows = [
-        ("Customer", (customer or {}).get("full_name") or ship.get("full_name") or "—"),
-        ("Email", (customer or {}).get("email") or "—"),
-        ("Phone", (customer or {}).get("phone") or ship.get("phone") or "—"),
-        ("Division", ship.get("division") or "—"),
-        ("District / Upazila", f"{ship.get('district') or '—'} / {ship.get('upazila') or '—'}"),
-        ("Address", ship.get("address_line") or "—"),
-        ("Postal Code", ship.get("postal_code") or "—"),
-    ]
-    for label, value in bt_rows:
-        row = bt.add_row().cells
-        _set_cell(row[0], label, bold=True, color=PRIMARY)
-        _set_cell(row[1], value)
-    doc.add_paragraph()
+    bt = Table(
+        [[label(k), value(v)] for k, v in [
+            ("Customer", (customer or {}).get("full_name") or ship.get("full_name") or "—"),
+            ("Email", (customer or {}).get("email") or "—"),
+            ("Phone", (customer or {}).get("phone") or ship.get("phone") or "—"),
+            ("Division", ship.get("division") or "—"),
+            ("District / Upazila", f"{ship.get('district') or '—'} / {ship.get('upazila') or '—'}"),
+            ("Address", ship.get("address_line") or "—"),
+            ("Postal Code", ship.get("postal_code") or "—"),
+        ]],
+        colWidths=[2.2 * inch, 4.4 * inch],
+    )
+    bt.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.75, GRID_COLOR),
+        ("BACKGROUND", (0, 0), (0, -1), LIGHT),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(bt)
+    story.append(Spacer(1, 10))
 
     # ----- Items table -----
-    items = doc.add_table(rows=1, cols=6)
-    items.style = "Table Grid"
-    items.alignment = WD_TABLE_ALIGNMENT.CENTER
-    widths = [Inches(0.3), Inches(2.6), Inches(1.1), Inches(0.6), Inches(1.0), Inches(1.1)]
-    header = items.rows[0].cells
-    for i, text in enumerate(["#", "Item", "SKU", "Qty", "Unit Price", "Total"]):
-        _set_cell(header[i], text, bold=True, color=PRIMARY)
-
+    item_data = [["#", "Item", "SKU", "Qty", "Unit Price", "Total"]]
     for idx, it in enumerate(order.get("items") or [], start=1):
-        row = items.add_row().cells
-        row[0].width = widths[0]
-        row[1].width = widths[1]
-        row[2].width = widths[2]
-        row[3].width = widths[3]
-        row[4].width = widths[4]
-        row[5].width = widths[5]
-        _set_cell(row[0], str(idx))
-        _set_cell(row[1], it.get("name") or "—")
-        _set_cell(row[2], it.get("sku") or "—")
-        _set_cell(row[3], str(it.get("quantity") or 0))
-        _set_cell(row[4], _fmt_money(it.get("unit_price")))
-        _set_cell(row[5], _fmt_money(it.get("line_total")), align=WD_ALIGN_PARAGRAPH.RIGHT)
+        item_data.append([
+            str(idx),
+            it.get("name") or "—",
+            it.get("sku") or "—",
+            str(it.get("quantity") or 0),
+            f"BDT {float(it.get('unit_price') or 0):,.2f}",
+            f"BDT {float(it.get('line_total') or 0):,.2f}",
+        ])
+    items = Table(
+        item_data,
+        colWidths=[0.4 * inch, 2.4 * inch, 1.1 * inch, 0.6 * inch, 1.15 * inch, 1.15 * inch],
+        repeatRows=1,
+    )
+    items.setStyle(_table_style(header_bg=True))
+    items.setStyle(TableStyle([("ALIGN", (4, 1), (5, -1), "RIGHT")]))
+    story.append(items)
+    story.append(Spacer(1, 10))
 
     # ----- Totals -----
-    doc.add_paragraph()
-    totals = doc.add_table(rows=0, cols=2)
-    totals.alignment = WD_TABLE_ALIGNMENT.RIGHT
-    totals.style = "Table Grid"
-    total_rows = [
+    totals_rows = [
         ("Subtotal", _fmt_money(order.get("subtotal"))),
         ("Discount", f"- {_fmt_money(order.get('discount'))}"),
         ("Delivery Charge", _fmt_money(order.get("delivery_charge"))),
         ("Tax", _fmt_money(order.get("tax"))),
         ("GRAND TOTAL", _fmt_money(order.get("total"))),
     ]
-    for i, (label, value) in enumerate(total_rows):
-        row = totals.add_row().cells
-        bold = i == len(total_rows) - 1
-        size = 11 if bold else 10
-        _set_cell(row[0], label, bold=bold, color=PRIMARY, size=size)
-        _set_cell(row[1], value, bold=bold, align=WD_ALIGN_PARAGRAPH.RIGHT, color=ACCENT, size=size)
-    doc.add_paragraph()
+    totals = Table(
+        [[Paragraph(f"<b>{k}</b>", body), Paragraph(f"<b>{v}</b>", body)] for k, v in totals_rows],
+        colWidths=[3.3 * inch, 3.3 * inch],
+        hAlign="RIGHT",
+    )
+    totals.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.75, GRID_COLOR),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("BACKGROUND", (0, -1), (-1, -1), PRIMARY),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(totals)
+    story.append(Spacer(1, 10))
 
     # ----- Status history ("invoice messages") -----
-    hist = doc.add_paragraph()
-    run = hist.add_run("Order Status History")
-    run.bold = True
-    run.font.size = Pt(12)
-    run.font.color.rgb = PRIMARY
-
+    story.append(Paragraph("Order Status History", section))
     history = order.get("history") or []
     if not history:
-        p = doc.add_paragraph()
-        run = p.add_run(f"• Placed as {status}")
-        run.font.size = Pt(10)
+        story.append(Paragraph(f"• Placed as {status}", body))
     for entry in history:
-        p = doc.add_paragraph()
-        run = p.add_run(
-            f"• {entry.get('status') or status} — {_fmt_dt(entry.get('at'))}"
-            f"{' (by ' + str(entry.get('by')) + ')' if entry.get('by') else ''}"
-        )
-        run.font.size = Pt(10)
+        line = f"• {entry.get('status') or status} — {_fmt_dt(entry.get('at'))}"
+        if entry.get("by"):
+            line += f" (by {entry.get('by')})"
+        story.append(Paragraph(line, body))
 
-    # Notes
+    # ----- Notes -----
     if order.get("notes"):
-        doc.add_paragraph()
-        p = doc.add_paragraph()
-        run = p.add_run(f"Order Notes: {order['notes']}")
-        run.font.size = Pt(9)
-        run.font.color.rgb = MUTED
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(f"Order Notes: {order['notes']}", note))
 
     # ----- Footer -----
-    doc.add_paragraph()
-    foot = doc.add_paragraph()
-    foot.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = foot.add_run(f"Generated {_fmt_dt(datetime.now(timezone.utc))}  ·  {BRAND}  ·  {COMPANY_NAME}")
-    run.font.size = Pt(8)
-    run.font.color.rgb = MUTED
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(
+        f"Generated {_fmt_dt(datetime.now(timezone.utc))}  ·  {BRAND}  ·  {COMPANY_NAME}",
+        muted,
+    ))
 
-    INVOICE_DIR.mkdir(parents=True, exist_ok=True)
-    path = INVOICE_DIR / f"INV-{order_number}.docx"
-    doc.save(str(path))
+    doc.build(story)
 
     await db.orders.update_one(
         {"_id": order["_id"]},
@@ -255,7 +259,7 @@ async def generate_order_invoice(order_id: str) -> Path:
 
 
 async def ensure_order_invoice(order_id: str) -> Path:
-    """Return the existing invoice .docx for an order, generating it if needed."""
+    """Return the existing invoice .pdf for an order, generating it if needed."""
     db = get_db()
     try:
         order = await db.orders.find_one({"_id": ObjectId(order_id)})
@@ -265,7 +269,7 @@ async def ensure_order_invoice(order_id: str) -> Path:
         raise HTTPException(status_code=404, detail="Order not found")
 
     stored = order.get("invoice_path")
-    if stored and Path(stored).exists():
+    if stored and Path(stored).suffix.lower() == ".pdf" and Path(stored).exists():
         return Path(stored)
     return await generate_order_invoice(order_id)
 

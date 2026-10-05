@@ -99,14 +99,14 @@ export default function AdminMlPage() {
                 <span className="text-slate-500 dark:text-slate-400 truncate">{forecast.name}</span>
                 <span
                   className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    rec.action === "reorder"
+                    rec.action === "purchase"
                       ? "bg-rose-100 text-rose-700"
-                      : rec.action === "watch"
+                      : rec.action === "monitor"
                       ? "bg-amber-100 text-amber-700"
                       : "bg-emerald-100 text-emerald-700"
                   }`}
                 >
-                  {rec.action || "hold"}
+                  {rec.action === "purchase" ? "Reorder" : rec.action === "monitor" ? "Watch" : "Hold"}
                 </span>
               </div>
 
@@ -122,7 +122,9 @@ export default function AdminMlPage() {
 
               <div className="border dark:border-slate-700 rounded-xl p-3 text-sm">
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase">Recommendation</p>
-                <p className="mt-1 font-medium capitalize text-slate-900 dark:text-white">{rec.action}</p>
+                <p className="mt-1 font-medium capitalize text-slate-900 dark:text-white">
+                  {rec.action === "purchase" ? "Reorder" : rec.action === "monitor" ? "Watch" : "Hold"}
+                </p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {rec.reason}
                   {rec.qty ? ` Suggested quantity: ${rec.qty} units.` : ""}

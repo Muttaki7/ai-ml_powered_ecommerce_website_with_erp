@@ -58,7 +58,7 @@ export default function MyOrdersPage() {
     setDownloading(order.id);
     try {
       const r = await orderApi.myInvoice(order.id);
-      downloadBlob(r, `INV-${order.order_number || order.id}.docx`);
+      downloadBlob(r, `INV-${order.order_number || order.id}.pdf`);
     } catch (e: any) {
       toast.error(getApiError(e, "Invoice download failed"));
     } finally {
@@ -145,7 +145,7 @@ export default function MyOrdersPage() {
                     className="btn-outline !text-sm !py-2 inline-flex"
                   >
                     <FileDown size={15} />
-                    {downloading === o.id ? "Preparing…" : "Download Invoice (.docx)"}
+                    {downloading === o.id ? "Preparing…" : "Download Invoice (.pdf)"}
                   </button>
                 </div>
               </div>

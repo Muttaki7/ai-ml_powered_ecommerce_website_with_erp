@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { adminApi, productApi, formatBDT, getApiError } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { adminApi, formatBDT, getApiError } from "@/lib/api";
 import { useAdminAuth } from "@/lib/useAdminAuth";
 import { AdminShell } from "@/components/AdminShell";
 import toast from "react-hot-toast";
-import { Plus, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 export default function AdminProductsPage() {
   const { user, loading } = useAdminAuth();
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
   const [q, setQ] = useState("");
+  const qRef = useRef("");
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -21,7 +21,6 @@ export default function AdminProductsPage() {
     name: "",
     sku: "",
     brand: "",
-    category_id: "",
     selling_price: "",
     purchase_price: "",
     discount_percent: "0",
@@ -29,21 +28,27 @@ export default function AdminProductsPage() {
     min_stock_level: "5",
     is_featured: false,
     description: "",
-    tags: "",
+    tags: [] as string[],
     images: [] as string[],
   };
   const [form, setForm] = useState(empty);
+  const [tagInput, setTagInput] = useState("");
+  const tagInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!loading) load();
-    productApi.categories().then((r) => setCategories(r.data || [])).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!loading) {
+      load();
+    }
+    const timer = setInterval(() => {
+      load();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(timer);
   }, [loading]);
 
   async function load() {
     try {
       const params: any = { limit: 100 };
-      if (q) params.q = q;
+      if (qRef.current) params.q = qRef.current;
       const r = await adminApi.products(params);
       setProducts(r.data || []);
     } catch {
@@ -71,6 +76,16 @@ export default function AdminProductsPage() {
     setForm((f) => ({ ...f, images: f.images.filter((i) => i !== url) }));
   }
 
+  function addTag() {
+    const t = tagInput.trim();
+    if (t && !form.tags.includes(t)) setForm((f) => ({ ...f, tags: [...f.tags, t] }));
+    setTagInput("");
+  }
+
+  function removeTag(t: string) {
+    setForm((f) => ({ ...f, tags: f.tags.filter((x) => x !== t) }));
+  }
+
   async function removeProduct(id: string) {
     if (!window.confirm("Delete this product permanently? This hides it from the storefront.")) return;
     setDeleting(id);
@@ -93,7 +108,6 @@ export default function AdminProductsPage() {
         name: form.name,
         sku: form.sku || `SKU-${Date.now().toString().slice(-5)}`,
         brand: form.brand || undefined,
-        category_id: form.category_id,
         selling_price: parseFloat(form.selling_price),
         purchase_price: parseFloat(form.purchase_price),
         discount_percent: parseFloat(form.discount_percent) || 0,
@@ -101,7 +115,7 @@ export default function AdminProductsPage() {
         min_stock_level: parseInt(form.min_stock_level) || 5,
         is_featured: form.is_featured,
         description: form.description || undefined,
-        tags: form.tags ? form.tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+        tags: form.tags,
         images: form.images,
       });
       toast.success("Product created");
@@ -129,7 +143,10 @@ export default function AdminProductsPage() {
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              qRef.current = e.target.value;
+            }}
             onKeyDown={(e) => e.key === "Enter" && load()}
             placeholder="Search products..."
             className="input !py-2 text-sm w-64"
@@ -163,19 +180,6 @@ export default function AdminProductsPage() {
                 onChange={(e) => setForm({ ...form, brand: e.target.value })}
                 className="input text-sm"
               />
-              <select
-                required
-                value={form.category_id}
-                onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-                className="input text-sm"
-              >
-                <option value="">Category...</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
               <input
                 required
                 type="number"
@@ -215,12 +219,51 @@ export default function AdminProductsPage() {
                 onChange={(e) => setForm({ ...form, min_stock_level: e.target.value })}
                 className="input text-sm"
               />
-              <input
-                placeholder="Tags (comma separated)"
-                value={form.tags}
-                onChange={(e) => setForm({ ...form, tags: e.target.value })}
-                className="border rounded-lg px-3 py-2 text-sm md:col-span-2"
-              />
+              <div
+                className="md:col-span-2"
+                onClick={() => tagInputRef.current?.focus()}
+              >
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                  Tags
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5 border rounded-lg px-2 py-1.5 cursor-text">
+                  {form.tags.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 bg-sky-100 dark:bg-sky-500/10 text-sky-700 dark:text-sky-400 text-xs font-medium rounded px-2 py-0.5"
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeTag(t);
+                        }}
+                        className="hover:text-rose-600 leading-none"
+                        title={`Remove ${t}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    ref={tagInputRef}
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        addTag();
+                      } else if (e.key === "Backspace" && !tagInput && form.tags.length) {
+                        removeTag(form.tags[form.tags.length - 1]);
+                      }
+                    }}
+                    onBlur={addTag}
+                    placeholder={form.tags.length ? "" : "Type a tag, press Enter..."}
+                    className="flex-1 min-w-[9rem] bg-transparent outline-none text-sm py-0.5"
+                  />
+                </div>
+              </div>
               <textarea
                 placeholder="Description"
                 value={form.description}
@@ -298,7 +341,7 @@ export default function AdminProductsPage() {
                 <tr className="text-left text-slate-500 dark:text-slate-400 border-b dark:border-slate-700">
                   <th className="py-3 px-4">Product</th>
                   <th>SKU</th>
-                  <th>Category</th>
+                  <th>Tags</th>
                   <th>Price</th>
                   <th>Stock</th>
                   <th>Status</th>
@@ -330,7 +373,22 @@ export default function AdminProductsPage() {
                       </div>
                     </td>
                     <td className="text-slate-500 dark:text-slate-400">{p.sku}</td>
-                    <td className="text-slate-600 dark:text-slate-300">{p.tags?.[0] || "—"}</td>
+                    <td className="text-slate-600 dark:text-slate-300">
+                      {p.tags?.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {p.tags.map((t: string) => (
+                            <span
+                              key={t}
+                              className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded px-2 py-0.5"
+                            >
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="font-semibold text-slate-900 dark:text-white">{formatBDT(p.final_price)}</td>
                     <td className="text-slate-700 dark:text-slate-300">
                       <span

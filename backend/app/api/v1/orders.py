@@ -113,7 +113,7 @@ async def checkout(
     result = await db.orders.insert_one(order)
     await log_action(customer["id"], "customer", "order.created", "order", str(result.inserted_id))
 
-    # Generate and store the .docx invoice on device (uploads/invoices/)
+    # Generate and store the .pdf invoice on device (uploads/invoices/)
     try:
         await generate_order_invoice(str(result.inserted_id))
         has_invoice = True
@@ -187,8 +187,8 @@ async def download_my_invoice(
     number = order.get("order_number") or str(order["_id"])
     return FileResponse(
         path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"INV-{number}.docx",
+        media_type="application/pdf",
+        filename=f"INV-{number}.pdf",
     )
 
 
@@ -236,8 +236,8 @@ async def download_admin_invoice(
     number = order.get("order_number") or str(order["_id"])
     return FileResponse(
         path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"INV-{number}.docx",
+        media_type="application/pdf",
+        filename=f"INV-{number}.pdf",
     )
 
 
@@ -266,7 +266,7 @@ async def update_order_status(
         )
     await log_action(admin["id"], "admin", "order.status_updated", "order", order_id, {"status": status})
 
-    # Refresh the stored .docx invoice so the latest status message is included
+    # Refresh the stored .pdf invoice so the latest status message is included
     from app.services.invoice_service import regenerate_order_invoice
     await regenerate_order_invoice(order_id)
 

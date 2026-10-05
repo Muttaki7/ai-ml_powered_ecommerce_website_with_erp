@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+import re
 import aiofiles
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, UploadFile, File
 from bson import ObjectId
@@ -28,6 +29,67 @@ def _slug(text: str) -> str:
         return slugify(text)
     except Exception:
         return text.lower().replace(" ", "-")[:80]
+
+
+async def _resolve_category_id(db, raw: str) -> ObjectId:
+    """Resolve a category reference into a real category ObjectId.
+
+    The admin product form sends prebuilt categories by NAME (or a
+    "Parent > Child" path) as well as existing DB ObjectIds. Anything not an
+    existing ObjectId is looked up (case-insensitive) under its parent and
+    created if missing, so prebuilt selections always persist a reusable
+    category document for the storefront and future product forms.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Category is required")
+
+    parts = [p.strip() for p in re.split(r"\s*>\s*", raw) if p.strip()]
+    parent_id: Optional[ObjectId] = None
+
+    for part in parts:
+        # Existing DB category id (single-id selection or a path segment)
+        if ObjectId.is_valid(part):
+            cat = await db.categories.find_one({"_id": ObjectId(part)})
+            if cat:
+                if cat.get("status") == "deleted":
+                    await db.categories.update_one(
+                        {"_id": cat["_id"]},
+                        {"$set": {"status": "active", "updated_at": datetime.now(timezone.utc)}},
+                    )
+                parent_id = cat["_id"]
+                continue
+        # Prebuilt / by-name category under the current parent
+        cat = await db.categories.find_one({
+            "name": {"$regex": f"^{re.escape(part)}$", "$options": "i"},
+            "parent_id": parent_id,
+            "status": {"$ne": "deleted"},
+        })
+        if not cat:
+            cat = await db.categories.find_one({
+                "slug": _slug(part),
+                "parent_id": parent_id,
+                "status": {"$ne": "deleted"},
+            })
+        if not cat:
+            now = datetime.now(timezone.utc)
+            res = await db.categories.insert_one({
+                "name": part,
+                "slug": await _unique_slug(db, _slug(part)),
+                "parent_id": parent_id,
+                "description": None,
+                "image": None,
+                "order": 0,
+                "status": "active",
+                "created_at": now,
+                "updated_at": now,
+            })
+            cat = {"_id": res.inserted_id}
+        parent_id = cat["_id"]
+
+    if not parent_id:
+        raise HTTPException(status_code=400, detail="Invalid category")
+    return parent_id
 
 
 def _serialize_product(p: dict) -> dict:
@@ -93,7 +155,11 @@ async def list_products(
     if category_id:
         filt["category_id"] = _to_oid(category_id, "category id")
     if brand:
-        filt["brand"] = brand
+        brand_list = [b.strip() for b in brand.split(",") if b.strip()]
+        if len(brand_list) == 1:
+            filt["brand"] = brand_list[0]
+        elif brand_list:
+            filt["brand"] = {"$in": brand_list}
     if min_price is not None or max_price is not None:
         price_f = {}
         if min_price is not None:
@@ -108,6 +174,14 @@ async def list_products(
 
     cursor = db.products.find(filt).skip(skip).limit(limit).sort("created_at", -1)
     return [_serialize_product(p) async for p in cursor]
+
+
+@router.get("/brands")
+async def list_brands():
+    """Distinct active product brands, sorted alphabetically (A -> Z)."""
+    db = get_db()
+    brands = await db.products.distinct("brand", {"status": "active", "brand": {"$ne": None}})
+    return sorted((b for b in brands if str(b).strip()), key=str.lower)
 
 
 @router.get("/products/{product_id}")
@@ -130,7 +204,10 @@ async def create_product(
         raise HTTPException(400, "SKU already exists")
     doc = body.model_dump()
     doc["slug"] = doc.get("slug") or _slug(doc["name"])
-    doc["category_id"] = _to_oid(doc["category_id"], "category id")
+    if doc.get("category_id"):
+        doc["category_id"] = await _resolve_category_id(db, doc["category_id"])
+    else:
+        doc["category_id"] = None
     if doc.get("supplier_id"):
         doc["supplier_id"] = _to_oid(doc["supplier_id"], "supplier id")
     doc["reserved"] = 0
@@ -159,7 +236,10 @@ async def update_product(
     db = get_db()
     update = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if "category_id" in update:
-        update["category_id"] = _to_oid(update["category_id"], "category id")
+        if update["category_id"]:
+            update["category_id"] = await _resolve_category_id(db, update["category_id"])
+        else:
+            update["category_id"] = None
     update["updated_at"] = datetime.now(timezone.utc)
     result = await db.products.update_one({"_id": _to_oid(product_id)}, {"$set": update})
     if result.matched_count == 0:
@@ -240,16 +320,105 @@ async def list_categories():
     return [clean(r) for r in roots]
 
 
+async def _unique_slug(db, base: str) -> str:
+    """Return a slug that does not collide with the global unique slug index."""
+    candidate = base
+    n = 2
+    while await db.categories.find_one({"slug": candidate}):
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
+
+
 @router.post("/admin/categories")
 async def create_category(
     body: CategoryCreate,
     admin: dict = Depends(require_permission("categories.create")),
 ):
     db = get_db()
-    doc = body.model_dump()
-    doc["slug"] = doc.get("slug") or _slug(doc["name"])
-    if doc.get("parent_id"):
-        doc["parent_id"] = ObjectId(doc["parent_id"])
-    doc["created_at"] = datetime.now(timezone.utc)
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Category name is required")
+
+    parent_id = None
+    if body.parent_id:
+        try:
+            parent_id = ObjectId(body.parent_id)
+        except Exception:
+            raise HTTPException(400, "Invalid parent category id")
+        parent = await db.categories.find_one({"_id": parent_id, "status": {"$ne": "deleted"}})
+        if not parent:
+            raise HTTPException(404, "Parent category not found")
+
+    sibling_filter = {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}
+    sibling_filter["parent_id"] = parent_id
+    if await db.categories.find_one(sibling_filter):
+        raise HTTPException(400, "A category with this name already exists here")
+
+    slug = body.slug or _slug(name)
+    doc = {
+        "name": name,
+        "slug": await _unique_slug(db, slug),
+        "parent_id": parent_id,
+        "description": body.description,
+        "image": body.image,
+        "order": body.order,
+        "status": "active",
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
     result = await db.categories.insert_one(doc)
-    return {"id": str(result.inserted_id), **body.model_dump()}
+    return {"id": str(result.inserted_id), **doc}
+
+
+@router.get("/admin/categories")
+async def admin_list_categories(
+    admin: dict = Depends(require_permission("categories.view")),
+):
+    db = get_db()
+    cats = [c async for c in db.categories.find({"status": {"$ne": "deleted"}}).sort("order", 1)]
+    return [
+        {
+            "id": str(c["_id"]),
+            "name": c.get("name"),
+            "slug": c.get("slug"),
+            "parent_id": str(c["parent_id"]) if c.get("parent_id") else None,
+            "description": c.get("description"),
+            "image": c.get("image"),
+            "order": c.get("order", 0),
+            "status": c.get("status", "active"),
+            "created_at": c.get("created_at").isoformat() if c.get("created_at") else None,
+        }
+        for c in cats
+    ]
+
+
+@router.delete("/admin/categories/{category_id}")
+async def delete_category(
+    category_id: str,
+    admin: dict = Depends(require_permission("categories.delete")),
+):
+    db = get_db()
+    oid = _to_oid(category_id, "category id")
+    cat = await db.categories.find_one({"_id": oid, "status": {"$ne": "deleted"}})
+    if not cat:
+        raise HTTPException(404, "Category not found")
+
+    # Collect the category and every nested subcategory (cascade).
+    ids = [oid]
+    queue = [oid]
+    while queue:
+        parent = queue.pop(0)
+        children = [
+            child["_id"]
+            async for child in db.categories.find({"parent_id": parent, "status": {"$ne": "deleted"}})
+        ]
+        ids.extend(children)
+        queue.extend(children)
+
+    now = datetime.now(timezone.utc)
+    await db.categories.update_many(
+        {"_id": {"$in": ids}},
+        {"$set": {"status": "deleted", "updated_at": now}},
+    )
+    return {"message": "Category deleted", "success": True, "deleted_count": len(ids)}

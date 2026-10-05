@@ -88,6 +88,7 @@ export const productApi = {
   list: (params?: any) => api.get("/products", { params }),
   get: (id: string) => api.get(`/products/${id}`),
   categories: () => api.get("/categories"),
+  brands: () => api.get("/brands"),
 };
 
 export const settingsApi = {
@@ -122,6 +123,9 @@ export const adminApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+  adminCategories: () => api.get("/admin/categories"),
+  createCategory: (data: any) => api.post("/admin/categories", data),
+  deleteCategory: (id: string) => api.delete(`/admin/categories/${id}`),
   mlDemand: (id: string) => api.get(`/ml/demand/${id}`),
   mlRecommendations: () => api.get("/ml/recommendations/purchase"),
   mlBatchForecast: (limit = 30) => api.post("/ml/forecast/batch", null, { params: { limit } }),

@@ -69,7 +69,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "audit.view",
     ],
     AdminRole.MANAGER: [
-        "products.view", "products.edit",
+        "products.view", "products.create", "products.edit", "products.delete",
+        "categories.view", "categories.create", "categories.edit", "categories.delete",
         "orders.view", "orders.edit",
         "inventory.view",
         "users.view",
@@ -78,15 +79,16 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     ],
     AdminRole.SALES_MANAGER: [
         "products.view",
+        "categories.view",
         "orders.view", "orders.edit", "orders.cancel",
         "users.view",
         "reports.view",
         "ml.view_predictions",
     ],
     AdminRole.INVENTORY_MANAGER: [
-        "products.view", "products.edit",
+        "products.view", "products.create", "products.edit", "products.delete",
         "inventory.view", "inventory.add", "inventory.edit", "inventory.transfer",
-        "categories.view",
+        "categories.view", "categories.create", "categories.edit", "categories.delete",
         "ml.view_predictions",
         "reports.view",
     ],
@@ -98,6 +100,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     AdminRole.PURCHASE_MANAGER: [
         "inventory.view", "inventory.add",
         "products.view",
+        "categories.view",
         "reports.view",
     ],
     AdminRole.CUSTOMER_SUPPORT: [
@@ -113,11 +116,13 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     ],
     AdminRole.MARKETING_MANAGER: [
         "products.view",
+        "categories.view",
         "promotions.view", "promotions.create", "promotions.edit", "promotions.pause",
         "ml.view_predictions",
     ],
     AdminRole.ANALYST: [
         "products.view",
+        "categories.view",
         "orders.view",
         "ml.view_predictions", "ml.run_analysis",
         "reports.view", "reports.export",
@@ -172,3 +177,19 @@ BD_DIVISIONS = [
     "Dhaka", "Chattogram", "Rajshahi", "Khulna",
     "Barishal", "Sylhet", "Rangpur", "Mymensingh",
 ]
+
+
+def resolve_admin_permissions(
+    role, is_main_admin: bool = False, stored: list[str] | None = None
+) -> list[str]:
+    """Source of truth for an admin's effective permissions.
+
+    Main admins get everything. Everyone else gets the union of their role's
+    default permissions and anything stored on the record, so role changes
+    (and refreshed defaults) always take effect without re-creating accounts.
+    """
+    if is_main_admin:
+        return list(ROLE_PERMISSIONS[AdminRole.MAIN_ADMIN])
+    role_perms = ROLE_PERMISSIONS.get(role, [])
+    merged = [*role_perms, *(stored or [])]
+    return list(dict.fromkeys(merged))
